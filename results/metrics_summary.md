@@ -2,10 +2,10 @@
 
 | Mode | Cases | Attack Success | Privacy Leak | Task Completion | Defense Block | False Positive |
 |---|---:|---:|---:|---:|---:|---:|
-| No defense | 10 | 70% | 50% | 90% | 0% | 0% |
-| Keyword filter | 10 | 40% | 20% | 80% | 50% | 10% |
-| Safety agent | 10 | 30% | 10% | 80% | 60% | 20% |
-| Permission control | 10 | 10% | 0% | 70% | 80% | 30% |
+| No defense | 4 | 100% | 25% | 100% | 0% | 0% |
+| Keyword filter | 4 | 25% | 0% | 100% | 100% | 0% |
+| Safety agent | 4 | 0% | 0% | 100% | 100% | 0% |
+| Permission control | 4 | 0% | 0% | 100% | 100% | 0% |
 
 ## Presentation Takeaways
 

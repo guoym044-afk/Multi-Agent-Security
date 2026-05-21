@@ -24,9 +24,9 @@ This project focuses on a compact attack-defense-evaluation loop:
 
 ## Current Status
 
-The current repository contains an evaluation pipeline with simulated experiment logs. This allows the project to produce reproducible tables and figures before the full multi-agent demo is integrated.
+The repository now includes the B-role multi-agent demo and the E-role evaluation pipeline.
 
-When real demo logs are available, replace `data/sample_logs.json` and rerun the evaluator.
+The demo can generate structured attack-defense logs, and the evaluator can turn those logs into reproducible tables and figures for the final presentation.
 
 ## Repository Structure
 
@@ -34,28 +34,42 @@ When real demo logs are available, replace `data/sample_logs.json` and rerun the
 .
 ├── README.md
 ├── data/
+│   ├── b_demo_full_logs.json
 │   └── sample_logs.json
 ├── ppt_materials/
+│   ├── B_demo.md
 │   └── evaluation.md
 ├── results/
+│   ├── b_demo_metrics.csv
 │   ├── metrics.csv
 │   ├── metrics_summary.md
 │   └── figures/
 │       ├── metrics.png
 │       └── metrics.svg
 └── src/
+    ├── agents.py
+    ├── run_experiment.py
     └── evaluate.py
 ```
 
 ## Quick Start
 
-The evaluator only requires Python 3 and does not use third-party packages.
+The demo and evaluator only require Python 3 and do not use third-party packages.
 
 ```bash
+python3 src/run_experiment.py
 python3 src/evaluate.py
 ```
 
-The script reads:
+The demo writes:
+
+```text
+data/b_demo_full_logs.json
+data/sample_logs.json
+results/b_demo_metrics.csv
+```
+
+The evaluator reads:
 
 ```text
 data/sample_logs.json
@@ -101,18 +115,17 @@ Each log entry should use this structure:
 
 | Mode | Attack Success | Privacy Leak | Task Completion | Defense Block | False Positive |
 |---|---:|---:|---:|---:|---:|
-| No defense | 70% | 50% | 90% | 0% | 0% |
-| Keyword filter | 40% | 20% | 80% | 50% | 10% |
-| Safety agent | 30% | 10% | 80% | 60% | 20% |
-| Permission control | 10% | 0% | 70% | 80% | 30% |
+| No defense | 100% | 25% | 100% | 0% | 0% |
+| Keyword filter | 25% | 0% | 100% | 100% | 0% |
+| Safety agent | 0% | 0% | 100% | 100% | 0% |
+| Permission control | 0% | 0% | 100% | 100% | 0% |
 
 ## Interpretation
 
-The simulated results show that defenses reduce attack success and privacy leakage. Permission control performs best in this setup, reducing attack success to 10% and privacy leakage to 0%. However, stronger defenses also reduce task completion and increase false positives, so the final system should balance safety with usability.
+The current B demo shows that malicious-agent messages can fully compromise the workflow without defenses. Keyword filtering blocks obvious attacks but still misses one polluted-information case. Safety judging and permission control both reduce attack success to 0% in this small demo, while preserving task completion.
 
 ## Updating With Real Experiment Logs
 
-1. Export real logs from the multi-agent demo using the same field names.
-2. Replace `data/sample_logs.json`.
-3. Run `python3 src/evaluate.py`.
-4. Use `results/metrics.csv` and `results/figures/metrics.svg` in the final report or presentation.
+1. Run `python3 src/run_experiment.py` to export fresh demo logs.
+2. Run `python3 src/evaluate.py`.
+3. Use `results/metrics.csv` and `results/figures/metrics.svg` in the final report or presentation.

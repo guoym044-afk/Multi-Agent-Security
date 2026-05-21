@@ -1,0 +1,5 @@
+mode,cases,attack_success_rate,defense_block_rate,blocked_messages,messages
+no_defense,4,1.0,0.0,0,20
+keyword_filter,4,0.25,0.45,9,20
+safety_agent,4,0.0,0.4,8,20
+permission_control,4,0.0,0.2,4,20
