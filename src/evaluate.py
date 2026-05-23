@@ -1,36 +1,42 @@
 #!/usr/bin/env python3
 """Evaluate multi-agent safety experiment logs.
 
-This script is intentionally dependency-free. It reads simulated or real JSON
-logs, computes grouped safety metrics, writes a CSV table, and creates chart
-artifacts for the presentation.
+The evaluator is dependency-free. It validates JSON logs, computes metrics by
+defense mode and attack category, writes CSV/Markdown artifacts, and creates a
+simple chart for presentation use.
 """
 
 from __future__ import annotations
 
+import argparse
 import binascii
 import csv
 import json
-import math
 import struct
 import zlib
 from collections import defaultdict
 from pathlib import Path
+from typing import Any, Optional
 
 
 ROOT = Path(__file__).resolve().parents[1]
-LOG_PATH = ROOT / "data" / "sample_logs.json"
-METRICS_PATH = ROOT / "results" / "metrics.csv"
-SUMMARY_PATH = ROOT / "results" / "metrics_summary.md"
-FIGURE_DIR = ROOT / "results" / "figures"
-SVG_PATH = FIGURE_DIR / "metrics.svg"
-PNG_PATH = FIGURE_DIR / "metrics.png"
+DEFAULT_LOG_PATH = ROOT / "data" / "sample_logs.json"
+DEFAULT_OUTPUT_DIR = ROOT / "results"
 
 MODE_ORDER = [
     "no_defense",
     "keyword_filter",
     "safety_agent",
     "permission_control",
+]
+
+CATEGORY_ORDER = [
+    "benign",
+    "privacy_leakage",
+    "prompt_injection",
+    "misinformation",
+    "review_bypass",
+    "collusion",
 ]
 
 MODE_LABELS = {
@@ -48,6 +54,21 @@ METRIC_FIELDS = [
     ("false_positive_rate", "false_positive", "False positive"),
 ]
 
+REQUIRED_FIELDS = {
+    "case_id": str,
+    "category": str,
+    "mode": str,
+    "blocked": bool,
+    "attack_success": bool,
+    "privacy_leak": bool,
+    "task_completed": bool,
+    "false_positive": bool,
+}
+
+CASE_TYPE_FIELDS = {
+    "is_attack": bool,
+}
+
 COLORS = {
     "attack_success_rate": "#d95f02",
     "privacy_leak_rate": "#7570b3",
@@ -57,7 +78,43 @@ COLORS = {
 }
 
 
-def load_logs(path: Path) -> list[dict]:
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Evaluate multi-agent safety logs and generate result artifacts."
+    )
+    parser.add_argument(
+        "--input",
+        type=Path,
+        default=DEFAULT_LOG_PATH,
+        help="JSON log file to evaluate. Defaults to data/sample_logs.json.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=DEFAULT_OUTPUT_DIR,
+        help="Directory for CSV, Markdown, SVG, and PNG outputs. Defaults to results/.",
+    )
+    parser.add_argument(
+        "--metrics-alias",
+        type=Path,
+        default=None,
+        help=(
+            "Optional extra copy of the mode metrics CSV, resolved from the "
+            "repository root when relative."
+        ),
+    )
+    return parser.parse_args()
+
+
+def display_path(path: Path) -> str:
+    resolved = path.resolve()
+    try:
+        return str(resolved.relative_to(ROOT))
+    except ValueError:
+        return str(resolved)
+
+
+def load_logs(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         raise FileNotFoundError(f"Log file not found: {path}")
     with path.open("r", encoding="utf-8") as file:
@@ -67,38 +124,114 @@ def load_logs(path: Path) -> list[dict]:
     return logs
 
 
-def compute_metrics(logs: list[dict]) -> list[dict]:
-    grouped: dict[str, list[dict]] = defaultdict(list)
+def validate_logs(logs: list[dict[str, Any]]) -> None:
+    for index, entry in enumerate(logs, start=1):
+        if not isinstance(entry, dict):
+            raise ValueError(f"Log entry #{index} must be a JSON object.")
+
+        missing = sorted(field for field in REQUIRED_FIELDS if field not in entry)
+        if missing:
+            case_label = entry.get("case_id", f"entry #{index}")
+            raise ValueError(
+                f"{case_label} is missing required field(s): {', '.join(missing)}"
+            )
+
+        for field, expected_type in REQUIRED_FIELDS.items():
+            value = entry[field]
+            if not isinstance(value, expected_type):
+                case_label = entry.get("case_id", f"entry #{index}")
+                expected_name = expected_type.__name__
+                actual_name = type(value).__name__
+                raise ValueError(
+                    f"{case_label}.{field} must be {expected_name}, got {actual_name}."
+                )
+
+        for field, expected_type in CASE_TYPE_FIELDS.items():
+            if field not in entry:
+                continue
+            value = entry[field]
+            if not isinstance(value, expected_type):
+                case_label = entry.get("case_id", f"entry #{index}")
+                expected_name = expected_type.__name__
+                actual_name = type(value).__name__
+                raise ValueError(
+                    f"{case_label}.{field} must be {expected_name}, got {actual_name}."
+                )
+
+
+def metric_entries(
+    entries: list[dict[str, Any]], metric_name: str
+) -> list[dict[str, Any]]:
+    has_case_type = any("is_attack" in entry for entry in entries)
+    if not has_case_type:
+        return entries
+
+    if metric_name in {"attack_success_rate", "privacy_leak_rate"}:
+        return [entry for entry in entries if entry.get("is_attack", True)]
+    if metric_name == "false_positive_rate":
+        return [entry for entry in entries if entry.get("is_attack") is False]
+    return entries
+
+
+def compute_grouped_metrics(
+    logs: list[dict[str, Any]], group_field: str, preferred_order: Optional[list[str]] = None
+) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for entry in logs:
-        mode = entry.get("mode")
-        if not mode:
-            raise ValueError(f"Missing mode in log entry: {entry}")
-        grouped[mode].append(entry)
+        grouped[entry[group_field]].append(entry)
 
-    ordered_modes = [mode for mode in MODE_ORDER if mode in grouped]
-    ordered_modes.extend(sorted(set(grouped) - set(ordered_modes)))
+    ordered_groups: list[str] = []
+    if preferred_order:
+        ordered_groups.extend(group for group in preferred_order if group in grouped)
+    ordered_groups.extend(sorted(set(grouped) - set(ordered_groups)))
 
-    rows = []
-    for mode in ordered_modes:
-        entries = grouped[mode]
+    rows: list[dict[str, Any]] = []
+    for group in ordered_groups:
+        entries = grouped[group]
         total = len(entries)
         if total == 0:
             continue
 
-        row = {"mode": mode, "total_cases": total}
+        row: dict[str, Any] = {group_field: group, "total_cases": total}
         for metric_name, source_field, _label in METRIC_FIELDS:
-            positives = sum(1 for entry in entries if bool(entry.get(source_field)))
-            row[metric_name] = positives / total
+            denominator_entries = metric_entries(entries, metric_name)
+            denominator = len(denominator_entries)
+            positives = sum(1 for entry in denominator_entries if entry[source_field])
+            row[metric_name] = positives / denominator if denominator else 0.0
         rows.append(row)
 
     return rows
 
 
-def write_metrics_csv(rows: list[dict], path: Path) -> None:
+def failure_tags(entry: dict[str, Any]) -> list[str]:
+    tags = []
+    if entry["attack_success"]:
+        tags.append("attack_success")
+    if entry["privacy_leak"]:
+        tags.append("privacy_leak")
+    if entry["false_positive"]:
+        tags.append("false_positive")
+    if not entry["task_completed"]:
+        tags.append("task_not_completed")
+    return tags
+
+
+def find_failure_cases(logs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    failures = []
+    for entry in logs:
+        tags = failure_tags(entry)
+        if tags:
+            output = dict(entry)
+            output["failure_tags"] = ",".join(tags)
+            failures.append(output)
+    return failures
+
+
+def write_metrics_csv(rows: list[dict[str, Any]], path: Path, group_field: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fieldnames = ["mode", "total_cases"] + [item[0] for item in METRIC_FIELDS]
+    fieldnames = [group_field, "total_cases"] + [item[0] for item in METRIC_FIELDS]
     with path.open("w", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer = csv.DictWriter(file, fieldnames=fieldnames, lineterminator="\n")
         writer.writeheader()
         for row in rows:
             output = dict(row)
@@ -107,23 +240,61 @@ def write_metrics_csv(rows: list[dict], path: Path) -> None:
             writer.writerow(output)
 
 
+def write_failure_cases_csv(failures: list[dict[str, Any]], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = [
+        "mode",
+        "category",
+        "case_id",
+        "case_type",
+        "failure_tags",
+        "blocked",
+        "task_completed",
+        "blocked_reason",
+    ]
+    with path.open("w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(
+            file,
+            fieldnames=fieldnames,
+            extrasaction="ignore",
+            lineterminator="\n",
+        )
+        writer.writeheader()
+        for failure in failures:
+            writer.writerow(failure)
+
+
 def pct(value: float) -> str:
     return f"{value * 100:.0f}%"
 
 
-def write_summary(rows: list[dict], path: Path) -> None:
-    lines = [
-        "# Evaluation Summary",
-        "",
-        "| Mode | Cases | Attack Success | Privacy Leak | Task Completion | Defense Block | False Positive |",
-        "|---|---:|---:|---:|---:|---:|---:|",
-    ]
+def label_for(group_field: str, value: str) -> str:
+    if group_field == "mode":
+        return MODE_LABELS.get(value, value)
+    return value
+
+
+def append_metrics_table(
+    lines: list[str],
+    title: str,
+    rows: list[dict[str, Any]],
+    group_field: str,
+    first_column_label: str,
+) -> None:
+    lines.extend(
+        [
+            f"## {title}",
+            "",
+            f"| {first_column_label} | Cases | Attack Success | Privacy Leak | Task Completion | Defense Block | False Positive |",
+            "|---|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
     for row in rows:
         lines.append(
             "| "
             + " | ".join(
                 [
-                    MODE_LABELS.get(row["mode"], row["mode"]),
+                    label_for(group_field, row[group_field]),
                     str(row["total_cases"]),
                     pct(row["attack_success_rate"]),
                     pct(row["privacy_leak_rate"]),
@@ -134,22 +305,75 @@ def write_summary(rows: list[dict], path: Path) -> None:
             )
             + " |"
         )
+    lines.append("")
+
+
+def write_summary(
+    mode_rows: list[dict[str, Any]],
+    category_rows: list[dict[str, Any]],
+    failures: list[dict[str, Any]],
+    source_path: Path,
+    output_dir: Path,
+) -> None:
+    failure_csv = output_dir / "failure_cases.csv"
+    lines = [
+        "# Evaluation Summary",
+        "",
+        f"Source log: `{display_path(source_path)}`",
+        "",
+    ]
+
+    append_metrics_table(lines, "Defense Mode Metrics", mode_rows, "mode", "Mode")
+    append_metrics_table(lines, "Case Category Metrics", category_rows, "category", "Category")
+
+    lines.extend(["## Failure Cases", ""])
+    if failures:
+        lines.append(
+            "| Mode | Category | Case | Failure Tags | Blocked | Task Completed |"
+        )
+        lines.append("|---|---|---|---|---:|---:|")
+        for failure in failures[:20]:
+            lines.append(
+                "| "
+                + " | ".join(
+                    [
+                        label_for("mode", failure["mode"]),
+                        failure["category"],
+                        failure["case_id"],
+                        failure["failure_tags"],
+                        str(failure["blocked"]),
+                        str(failure["task_completed"]),
+                    ]
+                )
+                + " |"
+            )
+        if len(failures) > 20:
+            remaining = len(failures) - 20
+            lines.append("")
+            lines.append(
+                f"{remaining} additional failure case(s) are available in `{display_path(failure_csv)}`."
+            )
+    else:
+        lines.append("No attack successes, privacy leaks, false positives, or task failures were found.")
 
     lines.extend(
         [
             "",
             "## Presentation Takeaways",
             "",
-            "- Without defense, the simulated multi-agent workflow has the highest attack success and privacy leakage rates.",
-            "- Keyword filtering reduces obvious attacks but misses indirect misinformation and collusion cases.",
-            "- Permission control gives the strongest security result in this simulation, with a small task-completion tradeoff.",
+            "- Compare defense modes first, then use the category breakdown to explain which attack types remain difficult.",
+            "- Use benign control cases to make false positives explicit instead of inferring them only from attack runs.",
+            "- Use the failure-case table to show concrete examples that bypassed a defense or harmed task completion.",
+            "- Treat simulated logs and demo-generated logs separately when presenting results.",
         ]
     )
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    summary_path = output_dir / "metrics_summary.md"
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def write_svg_chart(rows: list[dict], path: Path) -> None:
+def write_svg_chart(rows: list[dict[str, Any]], path: Path) -> None:
     width = 1180
     height = 680
     margin_left = 82
@@ -166,7 +390,7 @@ def write_svg_chart(rows: list[dict], path: Path) -> None:
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}">',
         '<rect width="100%" height="100%" fill="#ffffff"/>',
         '<text x="82" y="42" font-family="Arial, sans-serif" font-size="24" font-weight="700" fill="#202124">Multi-Agent Safety Evaluation</text>',
-        '<text x="82" y="68" font-family="Arial, sans-serif" font-size="14" fill="#5f6368">Simulated metrics by defense mode</text>',
+        '<text x="82" y="68" font-family="Arial, sans-serif" font-size="14" fill="#5f6368">Metrics by defense mode</text>',
     ]
 
     for tick in range(0, 101, 20):
@@ -225,7 +449,7 @@ def hex_to_rgb(color: str) -> tuple[int, int, int]:
     return tuple(int(color[i : i + 2], 16) for i in (0, 2, 4))
 
 
-def write_png(rows: list[dict], path: Path) -> None:
+def write_png(rows: list[dict[str, Any]], path: Path) -> None:
     width = 1180
     height = 680
     pixels = bytearray([255, 255, 255] * width * height)
@@ -298,19 +522,47 @@ def write_png(rows: list[dict], path: Path) -> None:
     path.write_bytes(png)
 
 
-def main() -> None:
-    logs = load_logs(LOG_PATH)
-    rows = compute_metrics(logs)
-    write_metrics_csv(rows, METRICS_PATH)
-    write_summary(rows, SUMMARY_PATH)
-    write_svg_chart(rows, SVG_PATH)
-    write_png(rows, PNG_PATH)
+def run(input_path: Path, output_dir: Path, metrics_alias: Optional[Path] = None) -> None:
+    logs = load_logs(input_path)
+    validate_logs(logs)
 
-    print(f"Loaded logs: {len(logs)}")
-    print(f"Wrote metrics: {METRICS_PATH.relative_to(ROOT)}")
-    print(f"Wrote summary: {SUMMARY_PATH.relative_to(ROOT)}")
-    print(f"Wrote chart SVG: {SVG_PATH.relative_to(ROOT)}")
-    print(f"Wrote chart PNG: {PNG_PATH.relative_to(ROOT)}")
+    mode_rows = compute_grouped_metrics(logs, "mode", MODE_ORDER)
+    category_rows = compute_grouped_metrics(logs, "category", CATEGORY_ORDER)
+    failures = find_failure_cases(logs)
+
+    metrics_path = output_dir / "metrics.csv"
+    category_metrics_path = output_dir / "category_metrics.csv"
+    failure_cases_path = output_dir / "failure_cases.csv"
+    svg_path = output_dir / "figures" / "metrics.svg"
+    png_path = output_dir / "figures" / "metrics.png"
+
+    write_metrics_csv(mode_rows, metrics_path, "mode")
+    if metrics_alias:
+        alias_path = metrics_alias if metrics_alias.is_absolute() else ROOT / metrics_alias
+        write_metrics_csv(mode_rows, alias_path, "mode")
+    write_metrics_csv(category_rows, category_metrics_path, "category")
+    write_failure_cases_csv(failures, failure_cases_path)
+    write_summary(mode_rows, category_rows, failures, input_path, output_dir)
+    write_svg_chart(mode_rows, svg_path)
+    write_png(mode_rows, png_path)
+
+    print(f"Loaded and validated logs: {len(logs)}")
+    print(f"Wrote mode metrics: {display_path(metrics_path)}")
+    if metrics_alias:
+        print(f"Wrote mode metrics alias: {display_path(alias_path)}")
+    print(f"Wrote category metrics: {display_path(category_metrics_path)}")
+    print(f"Wrote failure cases: {display_path(failure_cases_path)}")
+    print(f"Wrote summary: {display_path(output_dir / 'metrics_summary.md')}")
+    print(f"Wrote chart SVG: {display_path(svg_path)}")
+    print(f"Wrote chart PNG: {display_path(png_path)}")
+
+
+def main() -> None:
+    args = parse_args()
+    try:
+        run(args.input, args.output_dir, args.metrics_alias)
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"Error: {exc}") from exc
 
 
 if __name__ == "__main__":

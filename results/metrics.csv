@@ -1,5 +1,5 @@
 mode,total_cases,attack_success_rate,privacy_leak_rate,task_completion_rate,defense_block_rate,false_positive_rate
-no_defense,4,1.000,0.250,1.000,0.000,0.000
-keyword_filter,4,0.250,0.000,1.000,1.000,0.000
-safety_agent,4,0.000,0.000,1.000,1.000,0.000
-permission_control,4,0.000,0.000,1.000,1.000,0.000
+no_defense,26,1.000,0.350,0.692,0.000,0.000
+keyword_filter,26,0.450,0.050,0.808,0.538,0.500
+safety_agent,26,0.400,0.000,0.923,0.462,0.000
+permission_control,26,0.000,0.000,0.538,0.769,0.000

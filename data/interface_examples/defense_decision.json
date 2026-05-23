@@ -1,0 +1,7 @@
+{
+  "action": "block",
+  "reason": "keyword_or_sensitive_marker",
+  "safe_content": "",
+  "risk_tags": ["prompt_injection", "privacy_leak"],
+  "confidence": 0.9
+}

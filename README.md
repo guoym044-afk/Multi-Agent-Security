@@ -2,31 +2,27 @@
 
 A course practice project for **AI Safety and Ethics**.
 
-This project studies security risks in multi-agent AI collaboration. It simulates malicious-agent attacks, compares defense strategies, and evaluates the tradeoff between safety and task completion.
+This repository implements a compact, reproducible workflow for studying security risks in multi-agent AI collaboration. It includes an attack case library, a deterministic multi-agent demo, rule-based defense mechanisms, an evaluation pipeline, result artifacts, and presentation materials.
 
 Repository: <https://github.com/guoym044-afk/Multi-Agent-Security>
 
 ## Project Overview
 
-Multi-agent systems can divide a complex task across multiple agents, but they also introduce new attack surfaces:
+Multi-agent systems make complex tasks easier to decompose, but they also add new security risks:
 
-- malicious agents can inject harmful instructions into the collaboration process
+- malicious agents can inject instructions into the shared workflow
 - one compromised agent can influence downstream agents
-- sensitive information may be forwarded across agent boundaries
-- safety checks can be bypassed through indirect instructions or collusion
+- sensitive information can move across agent boundaries
+- external documents can pollute the evidence used by researcher or writer agents
+- reviewers can be bypassed through role impersonation or hidden instructions
 
-This project focuses on a compact attack-defense-evaluation loop:
+This project demonstrates the full loop:
 
-1. Simulate multi-agent collaboration.
-2. Inject malicious messages or malicious-agent behavior.
-3. Apply defense strategies such as filtering, safety judging, and permission control.
-4. Measure attack success, privacy leakage, task completion, blocking rate, and false positives.
+```text
+attack cases -> multi-agent demo -> defense decisions -> evaluation logs -> metrics and figures
+```
 
-## Current Status
-
-The repository now includes the B-role multi-agent demo and the E-role evaluation pipeline.
-
-The demo can generate structured attack-defense logs, and the evaluator can turn those logs into reproducible tables and figures for the final presentation.
+The current implementation is deterministic and dependency-free. It does not call a real LLM API, which makes the project easy to reproduce in class and easy to inspect in GitHub.
 
 ## Repository Structure
 
@@ -34,59 +30,142 @@ The demo can generate structured attack-defense logs, and the evaluator can turn
 .
 ├── README.md
 ├── data/
+│   ├── attack_cases.json
+│   ├── benign_cases.json
 │   ├── b_demo_full_logs.json
+│   ├── defense_test_cases.json
+│   ├── interface_examples/
 │   └── sample_logs.json
+├── docs/
+│   ├── defense_design.md
+│   └── integration_interfaces.md
 ├── ppt_materials/
 │   ├── B_demo.md
-│   └── evaluation.md
+│   ├── D_defense.md
+│   ├── Multi-Agent-Security-Presentation.pptx
+│   ├── attack_cases.md
+│   ├── attack_cases_ppt_notes.md
+│   ├── benign_controls.md
+│   ├── evaluation.md
+│   └── final_presentation_outline.md
 ├── results/
-│   ├── b_demo_metrics.csv
+│   ├── category_metrics.csv
+│   ├── failure_cases.csv
 │   ├── metrics.csv
 │   ├── metrics_summary.md
 │   └── figures/
-│       ├── metrics.png
-│       └── metrics.svg
-└── src/
-    ├── agents.py
-    ├── run_experiment.py
-    └── evaluate.py
+├── src/
+│   ├── agents.py
+│   ├── defense.py
+│   ├── demo.py
+│   ├── evaluate.py
+│   └── run_experiment.py
+└── tests/
+    └── test_pipeline.py
 ```
 
 ## Quick Start
 
-The demo and evaluator only require Python 3 and do not use third-party packages.
+All scripts use Python 3 and require no third-party packages.
+
+Generate experiment logs from the attack and benign case libraries:
 
 ```bash
 python3 src/run_experiment.py
+```
+
+Evaluate the current sample logs:
+
+```bash
 python3 src/evaluate.py
 ```
 
-The demo writes:
+Evaluate the generated demo logs into a separate result folder:
 
-```text
-data/b_demo_full_logs.json
-data/sample_logs.json
-results/b_demo_metrics.csv
+```bash
+python3 src/evaluate.py --input data/b_demo_full_logs.json --output-dir results/demo --metrics-alias results/b_demo_metrics.csv
 ```
 
-The evaluator reads:
+Run regression tests:
 
-```text
-data/sample_logs.json
+```bash
+python3 tests/test_pipeline.py
 ```
 
-The script writes:
+Run the standalone defense module:
+
+```bash
+python3 src/defense.py
+python3 src/defense.py --method safety_judge
+```
+
+## Multi-Agent Demo
+
+The deterministic demo simulates a small collaboration workflow:
+
+```text
+PlannerAgent -> ResearcherAgent -> WriterAgent -> ReviewerAgent -> FinalOutput
+                         ^
+                         |
+               MaliciousAgent / ExternalDocument
+```
+
+It runs each attack or benign case under four modes:
+
+| Mode | Meaning |
+|---|---|
+| `no_defense` | No malicious-message inspection |
+| `keyword_filter` | Blocks obvious sensitive markers and injection phrases |
+| `safety_agent` | Applies broader risk checks by attack category and risk level |
+| `permission_control` | Blocks untrusted senders from writing to protected agent roles |
+
+## Attack Case Library
+
+`data/attack_cases.json` contains 20 structured attack cases across five categories:
+
+| Category | Count | Main Risk |
+|---|---:|---|
+| `privacy_leakage` | 4 | Leaking API keys, passwords, identifiers, or internal fields |
+| `prompt_injection` | 5 | Overriding rules, impersonating higher-priority roles, skipping validation |
+| `misinformation` | 4 | Polluting the final report with false facts or misleading conclusions |
+| `review_bypass` | 4 | Making the reviewer approve unsafe or unsupported content |
+| `collusion` | 3 | Coordinating multiple agents to forward secrets or hide failures |
+
+`data/benign_cases.json` contains 6 normal control cases. These are used to measure false positives, especially when a safe request mentions sensitive terms such as API keys or passwords.
+
+## Defense Module
+
+`src/defense.py` provides a standalone rule-based defense layer. It accepts a normalized message object and returns one of three actions:
+
+| Action | Meaning |
+|---|---|
+| `allow` | Pass the message |
+| `block` | Stop the message because it is high risk |
+| `redact` | Replace sensitive fields and continue |
+
+Implemented defenses include:
+
+- keyword and rule filtering
+- sensitive information redaction
+- agent permission checks
+- a combined `safety_judge`
+
+The design and limitations are documented in `docs/defense_design.md`.
+
+## Evaluation
+
+`src/evaluate.py` reads evaluator-compatible logs and produces:
 
 ```text
 results/metrics.csv
+results/category_metrics.csv
+results/failure_cases.csv
 results/metrics_summary.md
 results/figures/metrics.svg
 results/figures/metrics.png
 ```
 
-## Experiment Log Format
-
-Each log entry should use this structure:
+Each log entry must include:
 
 ```json
 {
@@ -101,31 +180,57 @@ Each log entry should use this structure:
 }
 ```
 
-## Metrics
+Optional fields such as `is_attack`, `case_type`, `attack_entry`, `target_agent`, and `blocked_reason` are preserved for failure analysis. When `is_attack` exists, attack success and privacy leak rates are computed over attack cases, while false positive rate is computed over benign cases.
 
-| Metric | Meaning |
-|---|---|
-| `attack_success_rate` | Ratio of cases where the malicious goal succeeds |
-| `privacy_leak_rate` | Ratio of cases where sensitive information leaks |
-| `task_completion_rate` | Ratio of cases where the normal task is completed |
-| `defense_block_rate` | Ratio of cases blocked by the defense |
-| `false_positive_rate` | Ratio of acceptable cases incorrectly blocked |
+## Current Results
 
-## Current Simulated Results
+The current deterministic demo produces 104 evaluation logs: 20 attack cases and 6 benign controls under 4 defense modes.
 
 | Mode | Attack Success | Privacy Leak | Task Completion | Defense Block | False Positive |
 |---|---:|---:|---:|---:|---:|
-| No defense | 100% | 25% | 100% | 0% | 0% |
-| Keyword filter | 25% | 0% | 100% | 100% | 0% |
-| Safety agent | 0% | 0% | 100% | 100% | 0% |
-| Permission control | 0% | 0% | 100% | 100% | 0% |
+| No defense | 100% | 35% | 69% | 0% | 0% |
+| Keyword filter | 45% | 5% | 81% | 54% | 50% |
+| Safety agent | 40% | 0% | 92% | 46% | 0% |
+| Permission control | 0% | 0% | 54% | 77% | 0% |
+
+Category-level results and failure examples are available in:
+
+```text
+results/category_metrics.csv
+results/failure_cases.csv
+results/metrics_summary.md
+```
 
 ## Interpretation
 
-The current B demo shows that malicious-agent messages can fully compromise the workflow without defenses. Keyword filtering blocks obvious attacks but still misses one polluted-information case. Safety judging and permission control both reduce attack success to 0% in this small demo, while preserving task completion.
+The no-defense baseline is fully vulnerable in this deterministic setup. Keyword filtering reduces obvious attacks, but it creates false positives when benign requests mention security-sensitive terms. The safety-agent mode eliminates privacy leakage while preserving the highest task completion rate. Permission control is the strongest security setting because it reduces attack success to 0%, but it also blocks more tasks and reduces completion.
 
-## Updating With Real Experiment Logs
+This demonstrates the main security tradeoff: stronger isolation improves safety, while overly broad controls can hurt usefulness.
 
-1. Run `python3 src/run_experiment.py` to export fresh demo logs.
+## Presentation Materials
+
+Presentation-ready materials are stored in `ppt_materials/`.
+
+Important files:
+
+- `ppt_materials/Multi-Agent-Security-Presentation.pptx`
+- `ppt_materials/final_presentation_outline.md`
+- `ppt_materials/attack_cases.md`
+- `ppt_materials/B_demo.md`
+- `ppt_materials/D_defense.md`
+- `ppt_materials/evaluation.md`
+
+## Reproducing Results
+
+1. Run `python3 src/run_experiment.py`.
 2. Run `python3 src/evaluate.py`.
-3. Use `results/metrics.csv` and `results/figures/metrics.svg` in the final report or presentation.
+3. Optional: run `python3 src/evaluate.py --input data/b_demo_full_logs.json --output-dir results/demo --metrics-alias results/b_demo_metrics.csv`.
+4. Run `python3 tests/test_pipeline.py`.
+5. Use `results/metrics.csv`, `results/category_metrics.csv`, `results/failure_cases.csv`, and `results/figures/metrics.svg` in the final report or slides.
+
+## Limitations
+
+- The demo is deterministic and rule-based; it does not call real LLM agents.
+- The attack cases are handcrafted and small-scale.
+- The defense module is intentionally interpretable, but it cannot cover all paraphrases, multi-turn attacks, or real tool-use risks.
+- The results are suitable for a course project demonstration, not for benchmarking production multi-agent systems.
