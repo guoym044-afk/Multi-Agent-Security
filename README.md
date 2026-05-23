@@ -2,7 +2,7 @@
 
 A course practice project for **AI Safety and Ethics**.
 
-This repository implements a compact, reproducible workflow for studying security risks in multi-agent AI collaboration. It includes an attack case library, a deterministic multi-agent demo, rule-based defense mechanisms, an evaluation pipeline, result artifacts, and presentation materials.
+This repository implements a compact, reproducible workflow for studying security risks in multi-agent AI collaboration. It includes an attack case library, a deterministic multi-agent demo, rule-based defense mechanisms, an evaluation pipeline, result artifacts, and presentation-ready Markdown materials.
 
 Repository: <https://github.com/guoym044-afk/Multi-Agent-Security>
 
@@ -42,7 +42,6 @@ The current implementation is deterministic and dependency-free. It does not cal
 ├── ppt_materials/
 │   ├── B_demo.md
 │   ├── D_defense.md
-│   ├── Multi-Agent-Security-Presentation.pptx
 │   ├── attack_cases.md
 │   ├── attack_cases_ppt_notes.md
 │   ├── benign_controls.md
@@ -207,13 +206,24 @@ The no-defense baseline is fully vulnerable in this deterministic setup. Keyword
 
 This demonstrates the main security tradeoff: stronger isolation improves safety, while overly broad controls can hurt usefulness.
 
+## Project Deliverables
+
+The latest repository content is organized around five deliverables:
+
+| Deliverable | Main files | Purpose |
+|---|---|---|
+| Attack library | `data/attack_cases.json`, `ppt_materials/attack_cases.md` | Defines 20 structured attack cases across five risk categories |
+| Runnable demo | `src/agents.py`, `src/demo.py`, `src/run_experiment.py` | Generates deterministic multi-agent traces under four defense modes |
+| Defense module | `src/defense.py`, `docs/defense_design.md` | Implements keyword, safety-judge, redaction, and permission checks |
+| Evaluation module | `src/evaluate.py`, `results/` | Produces mode metrics, category metrics, figures, and failure cases |
+| Integration notes | `docs/integration_interfaces.md`, `data/interface_examples/` | Documents JSON interfaces between demo, defense, and evaluator |
+
 ## Presentation Materials
 
-Presentation-ready materials are stored in `ppt_materials/`.
+Presentation-ready Markdown materials are stored in `ppt_materials/`. PowerPoint files are intentionally not tracked in Git; generate or share `.pptx` files separately when needed.
 
 Important files:
 
-- `ppt_materials/Multi-Agent-Security-Presentation.pptx`
 - `ppt_materials/final_presentation_outline.md`
 - `ppt_materials/attack_cases.md`
 - `ppt_materials/B_demo.md`
