@@ -1,5 +1,7 @@
 # Multi-Agent Security
 
+[English](./README.md) | [中文](./README.zh-CN.md)
+
 A course practice project for **AI Safety and Ethics**.
 
 This repository implements a compact, reproducible workflow for studying security risks in multi-agent AI collaboration. It includes an attack case library, a deterministic multi-agent demo, rule-based defense mechanisms, an evaluation pipeline, result artifacts, and presentation-ready Markdown materials.
@@ -29,6 +31,7 @@ The current implementation is deterministic and dependency-free. It does not cal
 ```text
 .
 ├── README.md
+├── README.zh-CN.md
 ├── data/
 │   ├── attack_cases.json
 │   ├── benign_cases.json
